@@ -1,0 +1,16 @@
+{
+  "name": "sample-ink-dns",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "node ./index.mjs",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@polkadot/api": "^2.9.1",
+    "@polkadot/api-contract": "^2.9.1"
+  }
+}
