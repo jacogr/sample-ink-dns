@@ -65,7 +65,7 @@ function resultPromise (callType, tx, pair, onInBlock) {
 }
 
 // deploys a code bundle on-chain, returning a blueprint
-async function getBlueprint (alice, api) {
+async function getBlueprint (pair, api) {
   console.log('');
 
   // load the files
@@ -76,33 +76,33 @@ async function getBlueprint (alice, api) {
   const code = new CodePromise(api, abiJson, `0x${wasmHex}`);
   const tx = code.createBlueprint();
 
-  return resultPromise('getBlueprint', tx, alice, ({ blueprint }) => blueprint);
+  return resultPromise('getBlueprint', tx, pair, ({ blueprint }) => blueprint);
 }
 
 // instantiates a new contract via blueprint
-function getContract (alice, blueprint) {
+function getContract (pair, blueprint) {
   console.log('');
 
   // instantiate via constructor
   const tx = blueprint.tx.new({ gasLimit: 300_000_000_000, value: 123_000_000_000 });
 
-  return resultPromise('getContract', tx, alice, ({ contract }) => contract);
+  return resultPromise('getContract', tx, pair, ({ contract }) => contract);
 }
 
-async function callContract (alice, contract) {
+async function callContract (pair, contract) {
   console.log('');
 
   // create a random hash to register
   const hash = randomAsHex();
 
   // estimate gas for this one
-  const { gasConsumed } = await contract.query.register(alice.address, {}, hash);
+  const { gasConsumed } = await contract.query.register(pair.address, {}, hash);
   const tx = contract.tx.register({ gasLimit: gasConsumed }, hash);
 
   // show the gas
   console.log('callContract', gasConsumed.toHuman(), 'gas limit');
 
-  return resultPromise('callContract', tx, alice, () => undefined);
+  return resultPromise('callContract', tx, pair, () => undefined);
 }
 
 async function main () {
