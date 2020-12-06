@@ -3,51 +3,85 @@ import { ApiPromise, Keyring } from '@polkadot/api';
 import { CodePromise } from '@polkadot/api-contract';
 import { randomAsHex } from '@polkadot/util-crypto';
 
-function getBlueprint (alice, api) {
-  console.log('');
-
+// a generic helper to resolve a result into a promise
+function resultPromise (callType, tx, pair, onInBlock) {
   return new Promise(async (resolve, reject) => {
-    // load the files
-    const wasmHex = fs.readFileSync('dns.wasm').toString('hex');
-    const abiJson = fs.readFileSync('dns.json', { encoding: 'utf-8' });
+    const unsub = await tx.signAndSend(pair, (result) => {
+      const { status, contractEvents, dispatchError, dispatchInfo, events } = result;
 
-    // the code we are going to be working with
-    const code = new CodePromise(api, abiJson, `0x${wasmHex}`);
+      console.log(`${callType} (status) ${status.toString()}`);
 
-    // deploy and get a blueprint
-    const unsub = await code
-      .createBlueprint()
-      .signAndSend(alice, ({ status, blueprint, dispatchError }) => {
-        console.log('getBlueprint (status)', status.toString());
+      // these are for errors that are thrown via the txpool
+      if (result.isError) {
+        reject(result);
+        unsub();
+      } else if (status.isInBlock) {
+        // all the extrinsic events, if available (this may include failed,
+        // where we have the dispatchError extracted)
+        // https://polkadot.js.org/docs/api/cookbook/blocks#how-do-i-map-extrinsics-to-their-events
+        if (events) {
+          console.log(`${callType} (events/system)`, events.map(({ event: { data, method, section } }) =>
+            `${section}.${method}${data ? `(${JSON.stringify(data.toHuman())})` : ''}`
+          ));
+        }
+
+        // should only be available in the case of a call, still handle it here
+        if (contractEvents) {
+          console.log(`${callType} (events/contract)`, contractEvents.map(({ args, event: { identifier } }) =>
+            `${identifier}(${JSON.stringify(args.map((a) => a.toHuman()))})`
+          ));
+        }
+
+        console.log(`${callType} (dispatch) ${JSON.stringify(dispatchInfo.toHuman())}`);
 
         if (dispatchError) {
+          // show the actual errors as received here
+          // https://polkadot.js.org/docs/api/cookbook/tx#how-do-i-get-the-decoded-enum-for-an-extrinsicfailed-event
+          if (dispatchError.isModule) {
+            // for module errors, we have the section indexed, lookup
+            const decoded = tx.registry.findMetaError(dispatchError.asModule);
+            const { documentation, name, section } = decoded;
+
+            console.log(`${callType} (error) ${section}.${name}: ${documentation.join(' ')}`);
+          } else {
+            // Other, CannotLookup, BadOrigin, no extra info
+            console.log(`${callType} (error) ${JSON.stringify(dispatchError.toHuman())}`);
+          }
+
           reject(dispatchError);
-        } else if (status.isInBlock) {
-          resolve(blueprint);
-          unsub();
+        } else {
+          resolve(onInBlock(result));
         }
-      });
+
+        unsub();
+      }
+    });
   });
 }
 
+// deploys a code bundle on-chain, returning a blueprint
+async function getBlueprint (alice, api) {
+  console.log('');
+
+  // load the files
+  const wasmHex = fs.readFileSync('dns.wasm').toString('hex');
+  const abiJson = fs.readFileSync('dns.json', { encoding: 'utf-8' });
+
+  // the code we are going to be working with
+  const code = new CodePromise(api, abiJson, `0x${wasmHex}`);
+  const tx = code.createBlueprint();
+
+  return resultPromise('getBlueprint', tx, alice, ({ blueprint }) => blueprint);
+}
+
+// instantiates a new contract via blueprint
 function getContract (alice, blueprint) {
   console.log('');
 
-  return new Promise(async (resolve, reject) => {
-    // deploy the contract
-    const unsub = await blueprint.tx
-      .new({ gasLimit: 200_000_000_000, value: 123_000_000_000 })
-      .signAndSend(alice, ({ status, contract, dispatchError }) => {
-        console.log('getContract (status)', status.toString());
+  // instantiate via constructor
+  const tx = blueprint.tx.new({ gasLimit: 300_000_000_000, value: 123_000_000_000 });
 
-        if (dispatchError) {
-          reject(dispatchError);
-        } else if (status.isInBlock) {
-          resolve(contract);
-          unsub();
-        }
-      });
-  });
+  return resultPromise('getContract', tx, alice, ({ contract }) => contract);
 }
 
 async function callContract (alice, contract) {
@@ -58,29 +92,12 @@ async function callContract (alice, contract) {
 
   // estimate gas for this one
   const { gasConsumed } = await contract.query.register(alice.address, {}, hash);
+  const tx = contract.tx.register({ gasLimit: gasConsumed }, hash);
 
   // show the gas
   console.log('callContract', gasConsumed.toHuman(), 'gas limit');
 
-  return new Promise(async (resolve, reject) => {
-    // mke the registration call
-    const unsub = await contract.tx
-      .register({ gasLimit: gasConsumed }, hash)
-      .signAndSend(alice, ({ status, contractEvents, dispatchError }) => {
-        console.log('callContract (status)', status.toString());
-
-        if (dispatchError) {
-          reject(dispatchError);
-        } else if (status.isInBlock) {
-          console.log('callContract (events)', contractEvents.map(({ args, event: { identifier } }) =>
-            `${identifier}(${args.map((a) => a.toHuman()).join(', ')})`
-          ));
-
-          resolve();
-          unsub();
-        }
-      });
-  });
+  return resultPromise('callContract', tx, alice, () => undefined);
 }
 
 async function main () {
