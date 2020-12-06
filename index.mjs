@@ -11,7 +11,7 @@ function resultPromise (callType, tx, pair, onInBlock) {
 
       console.log(`${callType} (status) ${status.toString()}`);
 
-      // these are for errors that are thrown via the txpool
+      // these are for errors that are thrown via the txpool, the tx didn't make it into a block
       if (result.isError) {
         reject(result);
         unsub();
@@ -26,16 +26,21 @@ function resultPromise (callType, tx, pair, onInBlock) {
         }
 
         // should only be available in the case of a call, still handle it here
+        // (this is decoded from the system ContractExecution event against the ABI)
         if (contractEvents) {
           console.log(`${callType} (events/contract)`, contractEvents.map(({ args, event: { identifier } }) =>
             `${identifier}(${JSON.stringify(args.map((a) => a.toHuman()))})`
           ));
         }
 
+        // this is part of the ExtrinsicSuccess/ExtrinsicFailed event, the API extracts it from those
+        // (which mans it will match with whatever Sucess/Failed eents above are showing)
         console.log(`${callType} (dispatch) ${JSON.stringify(dispatchInfo.toHuman())}`);
 
+        // The dispatchError is extracted from the system ExtrinsicFailed event above
+        // (so will match the details there, the API conveinence helper extracts it to ease-of-use)
         if (dispatchError) {
-          // show the actual errors as received here
+          // show the actual errors as received here by looking up the indexes against the registry
           // https://polkadot.js.org/docs/api/cookbook/tx#how-do-i-get-the-decoded-enum-for-an-extrinsicfailed-event
           if (dispatchError.isModule) {
             // for module errors, we have the section indexed, lookup
